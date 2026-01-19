@@ -36,6 +36,14 @@ jobs:
           path: llvm-project
           fetch-depth: 0
 
+      - name: Fetch base objects from upstream
+        shell: bash
+        run: |
+          cd llvm-project
+          git remote add upstream https://github.com/llvm/llvm-project.git
+          git fetch --no-tags upstream ${{ github.event.pull_request.base.sha }}
+          git fetch --no-tags upstream ${{ github.event.pull_request.base.ref }}
+
       - name: Index LLVM source
         shell: bash
         run: |
