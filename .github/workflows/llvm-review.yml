@@ -35,18 +35,11 @@ jobs:
           path: llvm-project
           fetch-depth: 0
       
-      - name: Ensure base commit exists
-        shell: bash
-        run: |
-          cd llvm-project
-          git fetch --no-tags --prune --progress origin ${{ github.event.pull_request.base.sha }}
-          git cat-file -e ${{ github.event.pull_request.base.sha }}^{commit}
-
       - name: Index LLVM source
         shell: bash
         run: |
           cd llvm-project
-          semcode-index --source .
+          semcode-index -s . --git "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
       - name: Build opt (from PR source)
         shell: bash
