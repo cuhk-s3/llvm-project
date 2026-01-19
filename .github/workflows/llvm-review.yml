@@ -8,7 +8,7 @@ permissions:
 
 on:
   pull_request:
-    types: [opened, review_requested]
+    types: [opened, synchronize, reopened, review_requested, ready_for_review]
 
 jobs:
   ai-review:
@@ -58,7 +58,7 @@ jobs:
       - name: Checkout CompPrompt
         uses: actions/checkout@v4
         with:
-          repository: 'cardigan1008/CompPrompt'
+          repository: 'cuhk-s3/CompPrompt'
           path: CompPrompt
       
       - name: Run CompPrompt Setup
