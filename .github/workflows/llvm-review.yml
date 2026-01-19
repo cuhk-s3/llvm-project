@@ -28,21 +28,12 @@ jobs:
           mkdir -p ~/.claude
           cp .ci/claude/settings.json ~/.claude/settings.json
 
-      - name: Checkout LLVM source (PR Head)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
+          repository: cuhk-s3/llvm-project
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
           path: llvm-project
           fetch-depth: 0
-
-      - name: Fetch base objects from upstream
-        shell: bash
-        run: |
-          cd llvm-project
-          git remote add upstream https://github.com/llvm/llvm-project.git
-          git fetch --no-tags upstream ${{ github.event.pull_request.base.sha }}
-          git fetch --no-tags upstream ${{ github.event.pull_request.base.ref }}
 
       - name: Index LLVM source
         shell: bash
