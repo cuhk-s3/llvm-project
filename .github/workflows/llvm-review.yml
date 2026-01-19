@@ -41,19 +41,24 @@ jobs:
           cd llvm-project
           semcode-index -s . --git "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
-      - name: Build opt (from PR source)
+      - name: Configure LLVM (PR-friendly)
         shell: bash
         run: |
-          mkdir -p llvm-project/build
-          cd llvm-project/build
-          # Configure for minimal build (just LLVM, no Clang/Tools/etc to save time)
-          cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_TARGETS_TO_BUILD="X86" \
-            -DLLVM_ENABLE_PROJECTS="" \
-            ../llvm
-          # Only build the 'opt' tool
-          ninja opt
-          echo "OPT_PATH=$(pwd)/bin/opt" >> $GITHUB_ENV
+          cmake -S llvm-project/llvm -B llvm-project/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_ABI_BREAKING_CHECKS=WITH_ASSERTS \
+            -DLLVM_APPEND_VC_REV=OFF \
+            -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
+            -DLLVM_PARALLEL_LINK_JOBS=4 \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF
+
+      - name: Build opt
+        shell: bash
+        run: |
+          ninja -C llvm-project/build opt
+          echo "OPT_PATH=$(pwd)/llvm-project/build/bin/opt" >> $GITHUB_ENV
 
       - name: Checkout CompPrompt
         uses: actions/checkout@v4
