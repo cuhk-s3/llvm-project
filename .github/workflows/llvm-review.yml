@@ -35,6 +35,14 @@ jobs:
           path: llvm-project
           fetch-depth: 0
       
+      - name: Unshallow (if needed)
+        shell: bash
+        run: |
+          cd llvm-project
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            git fetch --unshallow --no-tags origin
+          fi
+
       - name: Index LLVM source
         shell: bash
         run: |
