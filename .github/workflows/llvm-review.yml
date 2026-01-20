@@ -11,11 +11,8 @@ on:
     types: [opened, synchronize, reopened, review_requested, ready_for_review]
 
 jobs:
-  ai-review:
-    runs-on: self-hosted
-    # container: cardigan1008/comptest-env:latest
-    # env:
-    #   NO_PROXY: localhost,127.0.0.1,::1,registry.npmjs.org,.npmjs.org
+  prepare-artifacts:
+    runs-on: [self-hosted, build-runner]
     steps:
       - name: Checkout CI code
         uses: actions/checkout@v5
@@ -23,25 +20,27 @@ jobs:
           sparse-checkout: |
             .github
             .ci
-      
+
       - name: Set up .claude
         shell: bash
         run: |
           mkdir -p ~/.claude
           cp .ci/claude/settings.json ~/.claude/settings.json
 
-      - uses: actions/checkout@v4
+      - name: Checkout PR llvm-project
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: llvm-project
           fetch-depth: 0
-      
-      - name: Index LLVM source
+
+      - name: Index LLVM source (semcode)
         shell: bash
         run: |
           cd llvm-project
           semcode-index -s . --git "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          test -d llvm/.semcode.db
 
       - name: Configure LLVM
         shell: bash
@@ -60,6 +59,61 @@ jobs:
         shell: bash
         run: |
           ninja -C llvm-project/build opt
+          test -x llvm-project/build/bin/opt
+
+      - name: Package semcode DB + build dir
+        shell: bash
+        run: |
+          set -euxo pipefail
+          tar -C llvm-project -czf llvm_build_and_semcode.tgz \
+            build \
+            llvm/.semcode.db
+
+      - name: Upload build+semcode artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-build-and-semcode
+          path: llvm_build_and_semcode.tgz
+
+  ai-review:
+    needs: prepare-artifacts
+    runs-on: [self-hosted, claude]
+    steps:
+      - name: Checkout CI code
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            .github
+            .ci
+
+      - name: Set up .claude
+        shell: bash
+        run: |
+          mkdir -p ~/.claude
+          cp .ci/claude/settings.json ~/.claude/settings.json
+
+      - name: Checkout PR llvm-project (full source required for review)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: llvm-project
+          fetch-depth: 0
+
+      - name: Download build+semcode artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: llvm-build-and-semcode
+
+      - name: Restore build dir + semcode DB into workspace
+        shell: bash
+        run: |
+          set -euxo pipefail
+          tar -C llvm-project -xzf llvm_build_and_semcode.tgz
+
+          test -x llvm-project/build/bin/opt
+          test -d llvm-project/llvm/.semcode.db
+
           echo "OPT_PATH=$(pwd)/llvm-project/build/bin/opt" >> $GITHUB_ENV
 
       - name: Checkout CompPrompt
@@ -69,7 +123,7 @@ jobs:
           token: ${{ secrets.COMP_PROMPT_TOKEN }}
           path: CompPrompt
           fetch-depth: 0
-      
+
       - name: Run CompPrompt Claude Setup
         shell: bash
         run: |
@@ -90,29 +144,25 @@ jobs:
           claude_args: '--max-turns 10 --model us.anthropic.claude-opus-4-5-20251101-v1:0'
           prompt: |
             You are an expert LLVM Compiler Engineer.
-            
+
             Current directory is the root of the 'llvm-project' repository.
-            
+
             The 'opt' tool built from the PR source is located at: llvm-project/build/bin/opt
-            
+
             Read the prompt at 'CompPrompt/prompts/review-core.md'.
-            
+
             Using the prompt, do a deep dive regression analysis of the HEAD commit.
-            
+
             Use commit range ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} for the false-positive-guide.md section.
 
-      # Reporting Logic
       - name: Check for Findings
         id: check_review
         shell: bash
         run: |
-          # Check for review text
           if [ -f "llvm-project/review-inline.txt" ]; then
               echo "found_review=true" >> $GITHUB_OUTPUT
               echo "review_path=llvm-project/review-inline.txt" >> $GITHUB_OUTPUT
           fi
-          
-          # Check for generated tests
           if [ -f "llvm-project/miscompilation_test.ll" ]; then
               echo "found_test=true" >> $GITHUB_OUTPUT
           fi
@@ -126,7 +176,6 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            // Adjust path to point to the script in the current workspace context
             const scriptPath = './ci-scripts/ci/scripts/post-pr-comment.js';
             const postComment = require(scriptPath);
             await postComment({github, context, fs});
