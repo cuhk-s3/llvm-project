@@ -12,7 +12,7 @@ on:
 
 jobs:
   ai-review:
-    runs-on: self-hosted
+    runs-on: [self-hosted, x86_64]
     container: cardigan1008/comptest-env:latest
     steps:
       - name: Checkout CI code
