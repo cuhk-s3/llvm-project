@@ -14,6 +14,8 @@ jobs:
   ai-review:
     runs-on: self-hosted
     container: cardigan1008/comptest-env:latest
+    env:
+      NO_PROXY: localhost,127.0.0.1,::1,registry.npmjs.org,.npmjs.org
     steps:
       - name: Checkout CI code
         uses: actions/checkout@v5
