@@ -40,7 +40,8 @@ jobs:
         run: |
           cd llvm-project
           semcode-index -s . --git "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-          test -d llvm/.semcode.db
+          test -d .semcode.db
+          test "$(ls -A .semcode.db)"
 
       - name: Configure LLVM
         shell: bash
