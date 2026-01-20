@@ -141,8 +141,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          use_bedrock: "true"
-          claude_args: '--max-turns 10 --model us.anthropic.claude-opus-4-5-20251101-v1:0'
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: '--max-turns 10 --model claude-opus-4-5'
           prompt: |
             You are an expert LLVM Compiler Engineer.
 
