@@ -113,7 +113,7 @@ jobs:
           tar -C llvm-project -xzf llvm_build_and_semcode.tgz
 
           test -x llvm-project/build/bin/opt
-          test -d llvm-project/llvm/.semcode.db
+          test -d llvm-project/.semcode.db
 
           echo "OPT_PATH=$(pwd)/llvm-project/build/bin/opt" >> $GITHUB_ENV
 
