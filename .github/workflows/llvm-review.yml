@@ -63,8 +63,10 @@ jobs:
       - name: Checkout CompPrompt
         uses: actions/checkout@v4
         with:
-          repository: 'cuhk-s3/CompPrompt'
+          repository: cuhk-s3/CompPrompt
+          token: ${{ secrets.COMP_PROMPT_TOKEN }}
           path: CompPrompt
+          fetch-depth: 0
       
       - name: Run CompPrompt Setup
         shell: bash
