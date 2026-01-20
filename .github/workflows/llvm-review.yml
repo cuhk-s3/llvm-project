@@ -68,11 +68,11 @@ jobs:
           path: CompPrompt
           fetch-depth: 0
       
-      - name: Run CompPrompt Setup
+      - name: Run CompPrompt Claude Setup
         shell: bash
         run: |
           cd CompPrompt
-          chmod +x scripts/claude_setup.sh
+          chmod +x scripts/claude-setup.sh
           ./scripts/claude-setup.sh
 
       - name: Checkout CI Scripts
