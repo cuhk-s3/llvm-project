@@ -68,7 +68,7 @@ jobs:
           set -euxo pipefail
           tar -C llvm-project -czf llvm_build_and_semcode.tgz \
             build \
-            llvm/.semcode.db
+            .semcode.db
 
       - name: Upload build+semcode artifact
         uses: actions/upload-artifact@v4
