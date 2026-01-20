@@ -7,7 +7,7 @@ permissions:
   pull-requests: write
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, review_requested, ready_for_review]
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
             .github
             .ci
       
-      - name: Set up .claude/settings.json
+      - name: Set up .claude
         shell: bash
         run: |
           mkdir -p ~/.claude
@@ -41,7 +41,7 @@ jobs:
           cd llvm-project
           semcode-index -s . --git "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
-      - name: Configure LLVM (PR-friendly)
+      - name: Configure LLVM
         shell: bash
         run: |
           cmake -S llvm-project/llvm -B llvm-project/build -G Ninja \
@@ -54,7 +54,7 @@ jobs:
             -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_ENABLE_ZSTD=OFF
 
-      - name: Build opt
+      - name: Build llvm opt
         shell: bash
         run: |
           ninja -C llvm-project/build opt
