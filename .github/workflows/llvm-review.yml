@@ -78,7 +78,7 @@ jobs:
 
   ai-review:
     needs: prepare-artifacts
-    runs-on: [self-hosted, claude]
+    runs-on: [ubuntu-latest]
     container: cardigan1008/comptest-env:latest
     steps:
       - name: Checkout CI code
