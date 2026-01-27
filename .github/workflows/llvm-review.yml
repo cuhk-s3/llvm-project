@@ -1,0 +1,203 @@
+name: LLVM Review
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, review_requested, ready_for_review]
+
+jobs:
+  prepare-artifacts:
+    runs-on: [self-hosted, build-runner]
+    steps:
+      - name: Checkout CI code
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            .github
+            .ci
+
+      - name: Set up .claude
+        shell: bash
+        run: |
+          mkdir -p ~/.claude
+          cp .ci/claude/settings.json ~/.claude/settings.json
+
+      - name: Checkout PR llvm-project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: llvm-project
+          fetch-depth: 0
+
+      - name: Index LLVM source (semcode)
+        shell: bash
+        run: |
+          cd llvm-project
+          semcode-index -s . --git "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          test -d .semcode.db
+          test "$(ls -A .semcode.db)"
+
+      - name: Configure LLVM
+        shell: bash
+        run: |
+          cmake -S llvm-project/llvm -B llvm-project/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_ABI_BREAKING_CHECKS=WITH_ASSERTS \
+            -DLLVM_APPEND_VC_REV=OFF \
+            -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
+            -DLLVM_PARALLEL_LINK_JOBS=4 \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF
+
+      - name: Build llvm opt
+        shell: bash
+        run: |
+          ninja -C llvm-project/build opt
+          test -x llvm-project/build/bin/opt
+
+      - name: Package semcode DB + build dir
+        shell: bash
+        run: |
+          set -euxo pipefail
+          tar -C llvm-project -czf llvm_build_and_semcode.tgz \
+            build \
+            .semcode.db
+
+      - name: Upload build+semcode artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-build-and-semcode
+          path: llvm_build_and_semcode.tgz
+
+  ai-review:
+    needs: prepare-artifacts
+    runs-on: [ubuntu-latest]
+    container: cardigan1008/comptest-env:latest
+    steps:
+      - name: Checkout CI code
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            .github
+            .ci
+
+      - name: Set up .claude
+        shell: bash
+        run: |
+          mkdir -p ~/.claude
+          cp .ci/claude/settings.json ~/.claude/settings.json
+
+      - name: Checkout PR llvm-project (full source required for review)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: llvm-project
+          fetch-depth: 0
+
+      - name: Add upstream and fetch full upstream history
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd llvm-project
+
+          git remote add upstream https://github.com/llvm/llvm-project.git 2>/dev/null || true
+          git remote set-url upstream https://github.com/llvm/llvm-project.git
+
+          git fetch --prune --tags upstream "+refs/heads/*:refs/remotes/upstream/*"
+          git fetch --prune --tags origin "+refs/heads/*:refs/remotes/origin/*"
+
+      - name: Download build+semcode artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: llvm-build-and-semcode
+
+      - name: Restore build dir + semcode DB into workspace
+        shell: bash
+        run: |
+          set -euxo pipefail
+          tar -C llvm-project -xzf llvm_build_and_semcode.tgz
+
+          test -x llvm-project/build/bin/opt
+          test -d llvm-project/.semcode.db
+
+          echo "OPT_PATH=$(pwd)/llvm-project/build/bin/opt" >> $GITHUB_ENV
+
+      - name: Checkout CompPrompt
+        uses: actions/checkout@v4
+        with:
+          repository: cuhk-s3/CompPrompt
+          token: ${{ secrets.COMP_PROMPT_TOKEN }}
+          path: CompPrompt
+          fetch-depth: 0
+
+      - name: Run CompPrompt Claude Setup
+        shell: bash
+        run: |
+          cd CompPrompt
+          chmod +x scripts/claude-setup.sh
+          ./scripts/claude-setup.sh
+
+      - name: Checkout CI Scripts
+        uses: actions/checkout@v4
+        with:
+          path: ci-scripts
+
+      - name: Run Claude Agent
+        uses: anthropics/claude-code-action@v1
+        with:
+          show_full_output: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--max-turns 100 --model claude-opus-4-5'
+          prompt: |
+            You are an expert LLVM Compiler Engineer.
+
+            Current directory is the root of the 'llvm-project' repository.
+
+            The 'opt' tool built from the PR source is located at: llvm-project/build/bin/opt
+
+            Read the prompt at 'CompPrompt/prompts/review-core.md'.
+
+            Using the prompt, do a deep dive regression analysis of the HEAD commit.
+
+            Use commit range ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} for the false-positive-guide.md section.
+
+      - name: Check for Findings
+        id: check_review
+        shell: bash
+        run: |
+          if [ -f "llvm-project/review-inline.txt" ]; then
+              echo "found_review=true" >> $GITHUB_OUTPUT
+              echo "review_path=llvm-project/review-inline.txt" >> $GITHUB_OUTPUT
+          fi
+          if [ -f "llvm-project/miscompilation_test.ll" ]; then
+              echo "found_test=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post Review Comment
+        if: steps.check_review.outputs.found_review == 'true'
+        uses: actions/github-script@v7
+        env:
+          REVIEW_FILE: ${{ steps.check_review.outputs.review_path }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const scriptPath = './ci-scripts/ci/scripts/post-pr-comment.js';
+            const postComment = require(scriptPath);
+            await postComment({github, context, fs});
+
+      - name: Upload Test Case Artifact
+        if: steps.check_review.outputs.found_test == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproduced-miscompilation
+          path: llvm-project/miscompilation_test.ll
